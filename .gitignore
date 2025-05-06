@@ -1,0 +1,24 @@
+# Python virtual environment
+.venv/
+venv/
+ENV/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE and editor specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary or generated files (add more as needed)
+map.html # If this is an output you frequently regenerate
+simple_layer_test.html # From our tests
+# Add other output files or large data files you don't want in version control
+
+# If you have local database files (e.g., SQLite), you might want to ignore them
+# *.sqlite3
+# *.db

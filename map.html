@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Population Map</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+
+    <style>
+      #mapid {
+        height: 600px;
+        width: 100%;
+      }
+      .leaflet-popup-content-wrapper {
+        background: #f8f8f8;
+      }
+      .leaflet-popup-content {
+        margin: 10px;
+        max-width: 300px !important;
+        max-height: 250px !important;
+        overflow-y: auto;
+        overflow-x: hidden;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="mapid"></div>
+    <script>
+      var mymap = L.map("mapid").setView([0, 0], 2);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution:
+          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      }).addTo(mymap);
+
+      var dataUrl = "http://127.0.0.1:8000/get_population_data";
+      fetch(dataUrl)
+        .then(function (response) {
+          if (!response.ok) {
+            throw new Error(
+              `Network response was not ok: ${response.statusText}`
+            );
+          }
+          return response.json();
+        })
+        .then(function (geojsonData) {
+          console.log("Successfully get GeoJSON data :", geojsonData);
+          var geojsonLayer = L.geoJSON(geojsonData, {
+            pointToLayer: function (feature, latlng) {
+              return L.circleMarker(latlng, {
+                radius: 6,
+                fillColor: "#ff7800",
+                color: "#000",
+                weight: 1,
+                opacity: 1,
+                fillOpacity: 0.8,
+              });
+            },
+            onEachFeature: function (feature, layer) {
+              if (feature.properties) {
+                var popupContent = "<b> message : </b><br>";
+                for (var key in feature.properties) {
+                  if (feature.properties.hasOwnProperty(key)) {
+                    if (key !== "geom" && key !== "geometry") {
+                      popupContent +=
+                        key + ":" + feature.properties[key] + "<br>";
+                    }
+                  }
+                }
+                layer.bindPopup(popupContent, {
+                  maxWidth: 300,
+                  maxHeight: 250,
+                  autoPan: true,
+                  autoPanPadding: L.point(50, 50),
+                });
+              }
+            },
+          });
+          geojsonLayer.addTo(mymap);
+
+          if (geojsonLayer.getLayers().length > 0) {
+            mymap.fitBounds(geojsonLayer.getBounds());
+          } else {
+            console.warn(
+              "GeoJSON data was empty or invalid, not fitting bounds"
+            );
+          }
+        })
+        .catch(function (error) {
+          console.error("Error when getting data", error);
+        });
+    </script>
+  </body>
+</html>

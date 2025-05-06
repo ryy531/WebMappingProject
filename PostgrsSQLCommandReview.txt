@@ -1,0 +1,120 @@
+-- 连接到你刚刚创建的数据库（通常在pgAdmin中选中即可）
+
+-- 启用PostGIS扩展
+CREATE EXTENSION postgis;
+
+-- 创建一个名为 users 的表
+CREATE TABLE users (
+    user_id SERIAL PRIMARY KEY,       -- SERIAL: 自动生成唯一的整数 (自增ID)，并设置为主键
+    username VARCHAR(50) UNIQUE NOT NULL, -- VARCHAR: 字符串类型; UNIQUE: 值不能重复; NOT NULL: 值不能为空
+    email VARCHAR(100),               -- 允许为空的字符串
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP -- 带时区的时间戳，默认为当前时间
+);
+
+-- 插入单行数据
+INSERT INTO users (username, email)
+VALUES ('alice', 'alice@example.com');
+
+-- 插入多行数据
+INSERT INTO users (username, email)
+VALUES
+('bob', 'bob@example.com'),
+('charlie', 'charlie@example.com');
+
+-- 查询表中所有列和所有行
+SELECT * FROM users;
+
+-- 查询特定列的所有行
+SELECT username, email FROM users;
+
+-- 查询满足条件的行 (WHERE 子句)
+SELECT username FROM users WHERE user_id = 1;
+
+-- 查询并限制返回的行数 (对于大型表很有用)
+SELECT * FROM users LIMIT 10;
+
+-- 更新满足条件的行的特定列值
+UPDATE users
+SET email = 'alice.new@example.com'
+WHERE username = 'alice';
+
+-- 删除满足条件的行
+DELETE FROM users
+WHERE user_id = 3; -- 删除 user_id 为 3 的用户
+
+-- CREATE TABLE 语句，由 csvsql 生成，并移除了 NOT NULL 约束
+CREATE TABLE "btn_2020_constrained_UNadj" (
+    "Country" VARCHAR,
+    "Year" DECIMAL,
+    x DECIMAL,
+    y DECIMAL,
+    "TotalPopulation" DECIMAL,
+    f_0 DECIMAL, f_1 DECIMAL, f_5 DECIMAL, f_10 DECIMAL, f_15 DECIMAL,
+    f_20 DECIMAL, f_25 DECIMAL, f_30 DECIMAL, f_35 DECIMAL, f_40 DECIMAL,
+    f_45 DECIMAL, f_50 DECIMAL, f_55 DECIMAL, f_60 DECIMAL, f_65 DECIMAL,
+    f_70 DECIMAL, f_75 DECIMAL, f_80 DECIMAL,
+    m_0 DECIMAL, m_1 DECIMAL, m_5 DECIMAL, m_10 DECIMAL, m_15 DECIMAL,
+    m_20 DECIMAL, m_25 DECIMAL, m_30 DECIMAL, m_35 DECIMAL, m_40 DECIMAL,
+    m_45 DECIMAL, m_50 DECIMAL, m_55 DECIMAL, m_60 DECIMAL, m_65 DECIMAL,
+    m_70 DECIMAL, m_75 DECIMAL, m_80 DECIMAL
+);
+
+
+-- 从本地CSV文件导入数据到表中
+-- 请将 'type "你的CSV文件的完整路径"' 替换为实际的文件路径命令
+-- 请将 'UTF8' 替换为你的CSV文件的实际编码
+COPY "btn_2020_constrained_UNadj"
+FROM PROGRAM 'type "D:\path\to\your\btn_2020_constrained_UNadj.csv"' -- Windows 系统使用 'type "文件路径"'
+-- FROM PROGRAM 'cat "/path/to/your/btn_2020_constrained_UNadj.csv"' -- Linux/macOS 系统使用 'cat "文件路径"'
+WITH (
+    FORMAT CSV,   -- 指定文件格式为 CSV
+    HEADER,       -- 指定CSV文件包含表头
+    ENCODING 'UTF8' -- 指定CSV文件的编码
+);
+
+-- 在表中添加一个名为 geom 的新列，类型为 GEOMETRY (点)，使用 SRID 4326 (WGS84 经纬度)
+ALTER TABLE "btn_2020_constrained_UNadj"
+ADD COLUMN geom GEOMETRY(Point, 4326);
+
+-- 使用 x 和 y 列的值，创建 SRID 为 4326 的点几何对象，并更新到 geom 列
+-- 请再次确认你的 CSV 中 x 是经度，y 是纬度。如果反了，请将 ST_MakePoint(x, y) 改为 ST_MakePoint(y, x)。
+UPDATE "btn_2020_constrained_UNadj"
+SET geom = ST_SetSRID(ST_MakePoint(x, y), 4326);
+
+-- 为 geom 列创建 GiST 空间索引，以提高空间查询性能
+CREATE INDEX btn_2020_constrained_UNadj_geom_idx
+ON "btn_2020_constrained_UNadj" USING gist (geom);
+
+-- 查看表中的所有列和前10行数据
+SELECT * FROM "btn_2020_constrained_UNadj" LIMIT 10;
+
+-- 查看特定列和空间列的文本表示
+SELECT "Country", "Year", x, y, ST_AsText(geom)
+FROM "btn_2020_constrained_UNadj"
+LIMIT 10;
+
+-- 验证导入的总行数
+SELECT COUNT(*) FROM "btn_2020_constrained_UNadj";
+
+-- 示例：查询某点附近的数据（需要你有一个参考点，这里假设查询一个点）
+-- 注意：对于 SRID 4326 (经纬度)，直接计算距离单位是度。如果需要米，请转换为 geography 类型。
+-- 假设我们要找距离某个经纬度点 (例如 经度=10, 纬度=20) 1000米范围内的点：
+SELECT "Country", "Year"
+FROM "btn_2020_constrained_UNadj"
+WHERE ST_DWithin(
+    geom::geography, -- 将表的geometry列转换为geography类型
+    ST_SetSRID(ST_MakePoint(10, 20), 4326)::geography, -- 将参考点也转换为geography类型
+    1000 -- 距离阈值，单位是米
+);
+
+-- 示例：计算两个点之间的距离 (使用球面距离，单位米)
+-- 这个例子需要你通过某种方式选取两个特定的点进行计算
+SELECT ST_Distance(
+    (SELECT geom::geography FROM "btn_2020_constrained_UNadj" LIMIT 1 OFFSET 0), -- 获取第一行的点
+    (SELECT geom::geography FROM "btn_2020_constrained_UNadj" LIMIT 1 OFFSET 1)  -- 获取第二行的点
+);
+
+-- 示例：获取空间列的经度 (X) 和纬度 (Y)
+SELECT "Country", ST_X(geom), ST_Y(geom)
+FROM "btn_2020_constrained_UNadj"
+LIMIT 10;

@@ -4,38 +4,33 @@ from sqlalchemy import (
     create_engine,
     text,
 )  # For creating a database engine and executing SQL text
-from fastapi import FastAPI
-from fastapi import HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import (
+    FastAPI,
+    HTTPException,
+)  # FastAPI for API creation, HTTPException for error responses
+from fastapi.middleware.cors import CORSMiddleware  # For Cross-Origin Resource Sharing
 
-
-app = FastAPI()  # use uvicorn MainApi:app --reload command to start server
+# Initialize FastAPI app
+app = FastAPI()  # Server start command :  uvicorn MainApi:app --reload
 
 # --- CORS (Cross-Origin Resource Sharing) Middleware Configuration ---
-# This is necessary to allow your frontend (running on a different origin,
-# e.g., file:// or http://127.0.0.1:xxxx for a live server)
+# Allows frontend (e.g., running on http://127.0.0.1:5500)
 # to make requests to this FastAPI backend (running on http://127.0.0.1:8000).
-
-# Define a list of origins that are allowed to make cross-origin requests.
-# For development, allowing "null" (for file:// access) and common local dev servers is useful.
-# Using ["*"] allows all origins, which is convenient for development but generally
-# insecure for production environments (you should list specific frontend domains).
 origins = [
-    "http://localhost",  # Common alias for local machine
+    "http://localhost",
     "http://localhost:8080",  # Example if your frontend runs on port 8080
-    "http://127.0.0.1",  # Another common alias for local machine
-    "http://127.0.0.1:5500",  # Common port for VS Code Live Server
+    "http://127.0.0.1",
+    "http://127.0.0.1:5500",  # Common port for VS Code Live Server or similar
     "null",  # Allows requests from local HTML files opened with file://
-    # For broader development testing, you can use:
-    # "*"
+    # "*"                    # For broader development testing (allows all origins)
 ]
 
-# Add the CORSMiddleware to the FastAPI application.
-# This middleware will automatically add the necessary CORS headers to responses.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # Specify allowed origins (or ["*"] for all during dev)
-    allow_credentials=True,  # Whether to support cookies for cross-origin requests (often False for simple APIs)
+    allow_origins=[
+        "*"
+    ],  # For development, allow all. For production, list specific frontend domains.
+    allow_credentials=True,  # Whether to support cookies for cross-origin requests.
     allow_methods=[
         "*"
     ],  # Which HTTP methods are allowed (e.g., GET, POST). ["*"] allows all.
@@ -44,85 +39,163 @@ app.add_middleware(
     ],  # Which HTTP headers are allowed in requests. ["*"] allows all.
 )
 
-
+# --- Database Connection and Table Configuration ---
 DATABASE_CONNECTION_STRING = (
     "postgresql://postgres:960531wdxxm@localhost:5432/PostGIS Learning Database"
 )
 
+# Configuration for the population points data
+POPULATION_TABLE_NAME = "egy_2020_constrained_UNadj"  # Original population data table
+POPULATION_GEOM_COL = "geometry"  # Geometry column for population points
+SQL_QUERY_POPULATION_POINTS = f'SELECT * FROM public."{POPULATION_TABLE_NAME}" LIMIT 50;'  # Query for population points with a limit for now
 
-TABLE_NAME = "btn_2020_constrained_UNadj"
+# Configuration for the analysis polygons data
+ANALYSIS_POLYGONS_TABLE_NAME = (
+    "egypt_shape_admin_level2"  # Table name for analysis polygons
+)
+POLYGON_GEOMETRY_COLUMN_NAME = "geom"  # Geometry column for analysis polygons
+SQL_QUERY_ANALYSIS_POLYGONS = f'SELECT * FROM public."{ANALYSIS_POLYGONS_TABLE_NAME}";'  # Query to get all analysis polygons
 
-SQL_QUERY_STRING = f'SELECT * FROM public."{TABLE_NAME}";'
+# --- API Endpoints ---
 
 
 @app.get("/")
 async def read_root():
-    return {"message": "Hello FastAPI! Your GIS API is starting..."}
+    """
+    Root endpoint to check if the API is running.
+    """
+    print("Root endpoint '/' was accessed.")
+    return {"message": "Hello FastAPI! Your GIS API is running."}
 
 
 @app.get("/get_population_data")
-async def get_populaion_data():
+async def get_population_data():
+    """
+    API endpoint to fetch population point data from PostGIS.
+    Currently returns a limited number of points due to SQL_QUERY_POPULATION_POINTS.
+    """
     engine = None
-    gdf_from_db = None
+    gdf_population = None  # GeoDataFrame for population data
+
     try:
-        # Print a message indicating the start of the process
-        print("Attempting to create database engine...")
-        # Create a SQLAlchemy engine using the connection string
+        print("--- Population Data Endpoint: Start ---")
+        print("Attempting to create database engine for population data...")
         engine = create_engine(DATABASE_CONNECTION_STRING)
 
-        # (Optional but good practice) Test the database connection by executing a simple query.
-        # This helps confirm that the connection parameters are correct before attempting larger operations.
-        print("Testing database connection...")
+        print("Testing database connection for population data...")
         with engine.connect() as connection:
-            connection.execute(
-                text("SELECT 1")
-            )  # A minimal query to check connectivity
-        print("Database connection successful!")
-
-        # Print a message indicating that data reading is about to start
-        print(f"Attempting to read data from table 'public.{TABLE_NAME}'...")
-
-        # Use GeoPandas to read data from the PostGIS database
-        # sql: The SQL query (as a string or SQLAlchemy text() object).
-        # con: The SQLAlchemy engine or connection object.
-        # geom_col: The name of the geometry column in your PostGIS table (e.g., 'geom' or 'geometry').
-        # crs: The Coordinate Reference System to assign to the GeoDataFrame's geometry.
-        #      'EPSG:4326' corresponds to WGS84 (latitude/longitude).
-        gdf_from_db = gpd.read_postgis(
-            sql=text(SQL_QUERY_STRING),  # Wrap SQL string in text() for SQLAlchemy
-            con=engine,
-            geom_col="geom",  # Ensure this matches your geometry column name
-            crs="EPSG:4326",  # Assuming WGS84
-        )
-
-        print(f"Successfully read data from table 'public.{TABLE_NAME}'.")
-
-    except Exception as e:
-        # Catch any errors that occur during engine creation, connection, or data reading
-        raise HTTPException(
-            status_code=500,
-            detail=f"An error occurred during database interaction: {e}",
-        )
-
-    # --- 5. Display Results (if data was successfully read) ---
-    # Check if the GeoDataFrame was successfully populated and is not empty
-    if gdf_from_db is not None and not gdf_from_db.empty:
-        print("\n--- Data Read from Database (First 5 Rows): ---")
-        # Display the first 5 rows of the GeoDataFrame
-        print(gdf_from_db.head())
-
-        print("\n--- GeoDataFrame Info: ---")
-        # Display a concise summary of the GeoDataFrame, including data types and non-null values
-        # .info() prints directly to the console, so no need for an f-string or print() around it.
-        gdf_from_db.info()
+            connection.execute(text("SELECT 1"))  # Minimal query to check connectivity
+        print("Database connection successful for population data!")
 
         print(
-            f"\nSuccessfully read {len(gdf_from_db)} rows from the database table 'public.{TABLE_NAME}'."
+            f"Attempting to read population data from table 'public.{POPULATION_TABLE_NAME}' using query: {SQL_QUERY_POPULATION_POINTS}"
         )
-        return gdf_from_db.__geo_interface__
-    else:
-        # Message if no data was read or if an error occurred before gdf_from_db was populated
+        gdf_population = gpd.read_postgis(
+            sql=text(SQL_QUERY_POPULATION_POINTS),
+            con=engine,
+            geom_col=POPULATION_GEOM_COL,  # Use defined geometry column name
+            crs="EPSG:4326",  # Assuming WGS84
+        )
+        print(
+            f"Successfully read {len(gdf_population)} population points from table 'public.{POPULATION_TABLE_NAME}'."
+        )
+
+    except Exception as e:
+        error_message = f"An error occurred during database interaction for population data: {str(e)}"
+        print(f"ERROR: {error_message}")
         raise HTTPException(
-            status_code=404,
-            detail=f"\nFailed to read data from the table 'public.{TABLE_NAME}', or the table is empty.",
+            status_code=500,
+            detail=error_message,
+        )
+
+    if gdf_population is not None and not gdf_population.empty:
+        print("Population data GeoDataFrame (first 5 rows):")
+        print(gdf_population.head())
+        # print("\nPopulation data GeoDataFrame Info:") # .info() prints directly, so a preceding print is good
+        # gdf_population.info() # This prints directly to console, can be verbose for API logs
+        print("--- Population Data Endpoint: Success ---")
+        return (
+            gdf_population.__geo_interface__
+        )  # Convert GeoDataFrame to GeoJSON-like dictionary
+    elif gdf_population is not None and gdf_population.empty:
+        message = f"No population data found in table 'public.{POPULATION_TABLE_NAME}' or query returned no results."
+        print(f"INFO: {message}")
+        # Return an empty GeoJSON FeatureCollection if no data found
+        return {"type": "FeatureCollection", "features": []}
+    else:
+        # This case should ideally be caught by the exception or the empty check
+        message = f"Failed to read population data from 'public.{POPULATION_TABLE_NAME}', or an unexpected issue occurred."
+        print(f"ERROR: {message}")
+        raise HTTPException(
+            status_code=404,  # Or 500 if it's an unexpected server state
+            detail=message,
+        )
+
+
+@app.get(
+    "/get_polygon_data"
+)  # Changed from get_populaion_data to get_polygon_data as per your code
+async def get_polygon_data():  # Renamed function to match endpoint and data type
+    """
+    API endpoint to fetch analysis polygon data from PostGIS.
+    """
+    engine = None
+    gdf_polygons = None  # GeoDataFrame for polygon data
+
+    try:
+        print("--- Polygon Data Endpoint: Start ---")
+        print("Attempting to create database engine for polygon data...")
+        engine = create_engine(DATABASE_CONNECTION_STRING)
+
+        print("Testing database connection for polygon data...")
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))  # Minimal query to check connectivity
+        print("Database connection successful for polygon data!")
+
+        print(
+            f"Attempting to read polygon data from table 'public.{ANALYSIS_POLYGONS_TABLE_NAME}' using query: {SQL_QUERY_ANALYSIS_POLYGONS}"
+        )
+        gdf_polygons = gpd.read_postgis(
+            sql=text(SQL_QUERY_ANALYSIS_POLYGONS),
+            con=engine,
+            geom_col=POLYGON_GEOMETRY_COLUMN_NAME,  # Use defined geometry column name for polygons
+            crs="EPSG:4326",  # Assuming WGS84
+        )
+        print(
+            f"Successfully read {len(gdf_polygons)} polygons from table 'public.{ANALYSIS_POLYGONS_TABLE_NAME}'."
+        )
+
+    except Exception as e:
+        error_message = (
+            f"An error occurred during database interaction for polygon data: {str(e)}"
+        )
+        print(f"ERROR: {error_message}")
+        raise HTTPException(
+            status_code=500,
+            detail=error_message,
+        )
+
+    if gdf_polygons is not None and not gdf_polygons.empty:
+        print("Polygon data GeoDataFrame (first 5 rows):")  # Good for a quick check
+        print(gdf_polygons.head())
+        # print("\nPolygon data GeoDataFrame Info:") # .info() can be verbose for API logs
+        # gdf_polygons.info()
+        print("--- Polygon Data Endpoint: Success ---")
+        return (
+            gdf_polygons.__geo_interface__
+        )  # Convert GeoDataFrame to GeoJSON-like dictionary
+    elif gdf_polygons is not None and gdf_polygons.empty:
+        message = (
+            f"No polygon data found in table 'public.{ANALYSIS_POLYGONS_TABLE_NAME}'."
+        )
+        print(f"INFO: {message}")
+        # Return an empty GeoJSON FeatureCollection if no data found
+        return {"type": "FeatureCollection", "features": []}
+    else:
+        # This case implies an issue before data could be assessed as empty, likely caught by the main try-except.
+        message = f"Failed to read polygon data from 'public.{ANALYSIS_POLYGONS_TABLE_NAME}', or an unexpected issue occurred."
+        print(f"ERROR: {message}")
+        raise HTTPException(
+            status_code=404,  # Or 500
+            detail=message,
         )

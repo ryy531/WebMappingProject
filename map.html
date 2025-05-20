@@ -47,6 +47,7 @@
       }).addTo(mymap);
 
       var dataUrl = "http://127.0.0.1:8000/get_population_data";
+      var polygonUrl = "http://127.0.0.1:8000/get_polygon_data";
       fetch(dataUrl)
         .then(function (response) {
           if (!response.ok) {
@@ -98,6 +99,57 @@
               "GeoJSON data was empty or invalid, not fitting bounds"
             );
           }
+        })
+        .catch(function (error) {
+          console.error("Error when getting data", error);
+        });
+
+      //fetch polygon
+      fetch(polygonUrl)
+        .then(function (response) {
+          if (!response.ok) {
+            throw new Error(
+              `Network response was not ok: ${response.statusText}`
+            );
+          }
+          return response.json();
+        })
+        .then(function (polygonGeojsonData) {
+          console.log(
+            "Successfully get GeoJSON data for polygons:",
+            polygonGeojsonData
+          );
+          var polygonLayer = L.geoJSON(polygonGeojsonData, {
+            style: function (feature) {
+              return {
+                color: "#3388ff",
+                weight: 2,
+                opacity: 0.8,
+                fillColor: "#3388ff",
+                fillOpacity: 0.2,
+              };
+            },
+            onEachFeature: function (feature, layer) {
+              if (feature.properties) {
+                var popupContent = "<b>Analysis Region Details:</b><br>";
+                if (feature.properties.NAME_1) {
+                  popupContent +=
+                    "Level 1 Name: " + feature.properties.NAME_1 + "<br>";
+                }
+                if (feature.properties.NAME_2) {
+                  popupContent +=
+                    "Level 2 Name: " + feature.properties.NAME_2 + "<br>";
+                }
+                layer.bindPopup(popupContent, {
+                  maxWidth: 300,
+                  maxHeight: 250,
+                  autoPan: true,
+                  autoPanPadding: L.point(50, 50),
+                });
+              }
+            },
+          });
+          polygonLayer.addTo(mymap);
         })
         .catch(function (error) {
           console.error("Error when getting data", error);

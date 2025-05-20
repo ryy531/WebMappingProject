@@ -280,8 +280,8 @@ class RootWindow(tk.Tk):
             # SQL command to create a GiST index on the geometry column
             # IF NOT EXISTS prevents error if index already exists
             index_sql = f"""
-            CREATE INDEX IF NOT EXISTS {output_table}_geom_idx
-            ON public.{output_table} -- Assuming default 'public' schema
+            CREATE INDEX IF NOT EXISTS "{output_table}_geom_idx"
+            ON public."{output_table}" -- Assuming default 'public' schema
             USING GIST (geometry); 
             """
             # Execute the SQL command within a transaction for safety

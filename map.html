@@ -11,7 +11,6 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
-
     <script
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
       integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
@@ -19,10 +18,42 @@
     ></script>
 
     <style>
-      #mapid {
-        height: 600px;
-        width: 100%;
+      /* 基本的页面重置，确保没有意外的边距 */
+      body,
+      html {
+        margin: 0;
+        padding: 0;
+        height: 100%; /* 可以让body和html占满视口，但不是必须 */
+        font-family: sans-serif; /* 设置一个默认字体 */
       }
+
+      /* 给按钮一个非常明确且显眼的样式 */
+      #toggleAddModeButton {
+        display: inline-block;
+        padding: 10px 15px;
+        /* margin: 10px; */ /* 对于 fixed 定位，margin 可能不按预期工作，先去掉或用 top/left 控制间距 */
+        background-color: #007bff;
+        color: white;
+        border: 1px solid #0056b3;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+        z-index: 10000;
+
+        /* --- 修改开始 --- */
+        position: fixed; /* 改为 fixed 定位 */
+        bottom: 10px; /* 距离视口顶部 10px */
+        right: 10px; /* 距离视口左侧 10px */
+        /* --- 修改结束 --- */
+      }
+
+      /* 确保地图容器有一个明确的高度 */
+      #mapid {
+        height: 600px; /* 或者你希望的任何高度，例如 80vh (视口高度的80%) */
+        width: 100%; /* 宽度通常是100% */
+      }
+
+      /* Leaflet Popup 的优化样式 (你之前有的) */
       .leaflet-popup-content-wrapper {
         background: #f8f8f8;
       }
@@ -38,13 +69,92 @@
     </style>
   </head>
   <body>
+    <button id="toggleAddModeButton">Start to add hospital</button>
     <div id="mapid"></div>
+
     <script>
       var mymap = L.map("mapid").setView([0, 0], 2);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution:
-          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      }).addTo(mymap);
+      var populationLayer = null;
+      var polygonLayer = null;
+      var osmLayer = L.tileLayer(
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        {
+          attribution:
+            '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        }
+      );
+      osmLayer.addTo(mymap);
+
+      var baseLayers = { OpenStreetMap: osmLayer };
+
+      var mapModeButton = document.getElementById("toggleAddModeButton");
+      var isInAddMode = false;
+      mapModeButton.addEventListener("click", function () {
+        isInAddMode = !isInAddMode;
+        if (isInAddMode) {
+          mapModeButton.textContent = "Cancel Adding Hospital (Click Map)";
+          console.log("Hospital add mode ACTIVATED");
+        } else {
+          mapModeButton.textContent = "Start to Add Hospital";
+          console.log("Hospital add mode DEACTIVATED");
+        }
+      });
+
+      mymap.on("click", function (event) {
+        if (!isInAddMode) {
+          console.log(
+            "Map clicked, but not in Add Mode. Ignoring for new hospital creation."
+          );
+          return;
+        }
+        var clickedLat = event.latlng.lat;
+        var clickedLng = event.latlng.lng;
+        console.log(
+          "Map clicked at Latitude: " +
+            clickedLat +
+            ", Longitude: " +
+            clickedLng
+        );
+        var tempMarker = L.marker([clickedLat, clickedLng]).addTo(mymap);
+        tempMarker.bindPopup("New hospital temp point...").openPopup();
+        var hospitalName = prompt("Please enter hospital name (optional):", "");
+        var doctorCountStr = prompt(
+          "Please enter doctor number (required, e.g., 10):",
+          "0"
+        );
+        if (doctorCountStr === null) {
+          alert("Operation cancelled. No hospital added.");
+          mymap.removeLayer(tempMarker);
+          return;
+        }
+        var doctorCount = parseInt(doctorCountStr);
+        if (isNaN(doctorCount) || doctorCountStr.trim() === "") {
+          alert("Doctor number is invalid. Please enter a valid number.");
+          mymap.removeLayer(tempMarker);
+          return;
+        }
+        if (doctorCount < 0) {
+          alert("Doctor number cannot be negative.");
+          mymap.removeLayer(tempMarker);
+          return;
+        }
+        var newHospitalData = {
+          name: hospitalName,
+          doctor_count: doctorCount,
+          latitude: clickedLat,
+          longitude: clickedLng,
+        };
+        console.log("Data to be submitted for new hospital:", newHospitalData);
+        tempMarker
+          .setPopupContent(
+            `<b>${newHospitalData.name || "Unnamed Hospital"}</b><br>Doctors: ${
+              newHospitalData.doctor_count
+            }<br>Coords: ${newHospitalData.latitude.toFixed(
+              4
+            )}, ${newHospitalData.longitude.toFixed(4)}<br>(Ready to save)`
+          )
+          .openPopup();
+      });
 
       var dataUrl = "http://127.0.0.1:8000/get_population_data";
       var polygonUrl = "http://127.0.0.1:8000/get_polygon_data";
@@ -59,7 +169,7 @@
         })
         .then(function (geojsonData) {
           console.log("Successfully get GeoJSON data :", geojsonData);
-          var geojsonLayer = L.geoJSON(geojsonData, {
+          populationLayer = L.geoJSON(geojsonData, {
             pointToLayer: function (feature, latlng) {
               return L.circleMarker(latlng, {
                 radius: 6,
@@ -90,15 +200,16 @@
               }
             },
           });
-          geojsonLayer.addTo(mymap);
+          populationLayer.addTo(mymap);
 
-          if (geojsonLayer.getLayers().length > 0) {
-            mymap.fitBounds(geojsonLayer.getBounds());
+          if (populationLayer.getLayers().length > 0) {
+            mymap.fitBounds(populationLayer.getBounds());
           } else {
             console.warn(
               "GeoJSON data was empty or invalid, not fitting bounds"
             );
           }
+          tryAddLayerControl();
         })
         .catch(function (error) {
           console.error("Error when getting data", error);
@@ -119,7 +230,7 @@
             "Successfully get GeoJSON data for polygons:",
             polygonGeojsonData
           );
-          var polygonLayer = L.geoJSON(polygonGeojsonData, {
+          polygonLayer = L.geoJSON(polygonGeojsonData, {
             style: function (feature) {
               return {
                 color: "#3388ff",
@@ -150,10 +261,29 @@
             },
           });
           polygonLayer.addTo(mymap);
+          tryAddLayerControl();
         })
         .catch(function (error) {
           console.error("Error when getting data", error);
         });
+
+      var layerControl = null;
+      function tryAddLayerControl() {
+        if (populationLayer != null && polygonLayer != null) {
+          var overlayMaps = {
+            Population: populationLayer,
+            Regions: polygonLayer,
+          };
+          layerControl = L.control
+            .layers(baseLayers, overlayMaps, { collapsed: false })
+            .addTo(mymap);
+          console.log("Layer control has been added/updated.");
+        } else {
+          console.log(
+            "Waiting for all overlay layers to load before adding control..."
+          );
+        }
+      }
     </script>
   </body>
 </html>

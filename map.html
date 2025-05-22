@@ -149,11 +149,70 @@
           .setPopupContent(
             `<b>${newHospitalData.name || "Unnamed Hospital"}</b><br>Doctors: ${
               newHospitalData.doctor_count
-            }<br>Coords: ${newHospitalData.latitude.toFixed(
-              4
-            )}, ${newHospitalData.longitude.toFixed(4)}<br>(Ready to save)`
+            }<br><i>Data submitting to server...</i>`
           )
           .openPopup();
+
+        var apiUrl = "http://127.0.0.1:8000/api/add_hospital";
+        fetch(apiUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(newHospitalData),
+        })
+          .then(function (response) {
+            if (!response.ok) {
+              return response.json().then(function (errData) {
+                throw new Error(
+                  "Server responded with status: " +
+                    response.status +
+                    ". Message: " +
+                    (errData.detail || JSON.stringify(errData))
+                );
+              });
+            }
+            return response.json();
+          })
+          .then(function (data) {
+            console.log("Success response from backend:", data);
+            alert(
+              "Hospital data submitted successfully! Message: " + data.message
+            );
+            tempMarker
+              .setPopupContent(
+                `<b>${
+                  newHospitalData.name || "Unnamed Hospital"
+                }</b><br>Doctors: ${
+                  newHospitalData.doctor_count
+                }<br>Coords: ${newHospitalData.latitude.toFixed(
+                  4
+                )}, ${newHospitalData.longitude.toFixed(4)}<br>(Ready to save)`
+              )
+              .openPopup();
+            if (tempMarker && mymap.hasLayer(tempMarker)) {
+              tempMarker
+                .setPopupContent(
+                  `<b>${
+                    newHospitalData.name || "Unnamed Hospital"
+                  }</b><br>Doctors: ${
+                    newHospitalData.doctor_count
+                  }<br><strong style="color: green;">Saved Successfully!</strong>`
+                )
+                .openPopup();
+            }
+            isInAddMode = false;
+            mapModeButton.textContent = "Start to Add Hospital";
+            mymap.getContainer().style.cursor = "";
+          })
+          .catch(function (error) {
+            console.error("Error submitting hospital data:", error);
+            alert("Error submitting hospital data: " + error.message);
+            if (tempMarker && mymap.hasLayer(tempMarker)) {
+              mymap.removeLayer(tempMarker);
+              tempMarker = null;
+            }
+          });
       });
 
       var dataUrl = "http://127.0.0.1:8000/get_population_data";

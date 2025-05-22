@@ -9,9 +9,18 @@ from fastapi import (
     HTTPException,
 )  # FastAPI for API creation, HTTPException for error responses
 from fastapi.middleware.cors import CORSMiddleware  # For Cross-Origin Resource Sharing
+from pydantic import BaseModel
 
 # Initialize FastAPI app
 app = FastAPI()  # Server start command :  uvicorn MainApi:app --reload
+
+
+class HospitalCreate(BaseModel):
+    name: str | None = None
+    doctor_count: int
+    latitude: float
+    longitude: float
+
 
 # --- CORS (Cross-Origin Resource Sharing) Middleware Configuration ---
 # Allows frontend (e.g., running on http://127.0.0.1:5500)
@@ -30,7 +39,7 @@ app.add_middleware(
     allow_origins=[
         "*"
     ],  # For development, allow all. For production, list specific frontend domains.
-    allow_credentials=True,  # Whether to support cookies for cross-origin requests.
+    allow_credentials=False,  # Whether to support cookies for cross-origin requests.
     allow_methods=[
         "*"
     ],  # Which HTTP methods are allowed (e.g., GET, POST). ["*"] allows all.
@@ -199,3 +208,54 @@ async def get_polygon_data():  # Renamed function to match endpoint and data typ
             status_code=404,  # Or 500
             detail=message,
         )
+
+
+@app.post("/api/add_hospital")
+async def add_new_hospital(hospital_input: HospitalCreate):
+    print(f"name: {hospital_input.name}")
+    print(f"Doctor Count: {hospital_input.doctor_count}")
+    print(f"Latitude: {hospital_input.latitude}")
+    print(f"Longitude: {hospital_input.longitude}")
+    engine = None
+    new_hospital_id = None
+    engine = create_engine(DATABASE_CONNECTION_STRING)
+
+    sql_insert_statement = text(
+        """
+    INSERT INTO public.hospitals (name, doctor_count, geom)
+    VALUES (:name, :doctor_count, ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326))
+    RETURNING id;
+"""
+    )
+    insert_params = {
+        "name": hospital_input.name,
+        "doctor_count": hospital_input.doctor_count,
+        "longitude": hospital_input.longitude,
+        "latitude": hospital_input.latitude,
+    }
+    try:
+        print("Attempting to create database engine for hospital insertion...")
+        engine = create_engine(DATABASE_CONNECTION_STRING)
+        with engine.connect() as connection:
+            with connection.begin() as transaction:
+                result = connection.execute(sql_insert_statement, insert_params)
+                new_hospital_id = result.scalar_one_or_none()
+                print(f"Successfully inserted new hospital with ID: {new_hospital_id}")
+
+        print("--- Add Hospital Endpoint: Database insertion successful ---")
+        return {
+            "message": "Hospital added to database successfully!",
+            "hospital_id": new_hospital_id,
+            "data_submitted": hospital_input,
+        }
+    except Exception as e:
+        error_message = f"Database error occurred while adding hospital: {str(e)}"
+        print(f"ERROR: {error_message}")
+        raise HTTPException(
+            status_code=500,
+            detail=error_message,
+        )
+    finally:
+        if engine:
+            engine.dispose()
+            print("Database engine disposed.")

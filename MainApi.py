@@ -65,6 +65,7 @@ ANALYSIS_POLYGONS_TABLE_NAME = (
 POLYGON_GEOMETRY_COLUMN_NAME = "geom"  # Geometry column for analysis polygons
 SQL_QUERY_ANALYSIS_POLYGONS = f'SELECT * FROM public."{ANALYSIS_POLYGONS_TABLE_NAME}";'  # Query to get all analysis polygons
 
+SQL_QUERY_HOSPITAL_DATA = 'SELECT * FROM public."hospitals";'
 # --- API Endpoints ---
 
 
@@ -259,3 +260,54 @@ async def add_new_hospital(hospital_input: HospitalCreate):
         if engine:
             engine.dispose()
             print("Database engine disposed.")
+
+
+@app.get(
+    "/get_hospitals"
+)  # Changed from get_populaion_data to get_polygon_data as per your code
+async def get_hospitals():
+    engine = None
+    gdf_hospitals = None
+    try:
+        print("--- Get Hospitals Endpoint: Start ---")
+        print("Attempting to create database engine for hospital data...")
+        engine = create_engine(DATABASE_CONNECTION_STRING)
+        print("Testing database connection for hospital data...")
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        print("Database connection successful for hospitals!")
+        print(f"Attempting to read hospital data from table 'public.hospitals'...")
+        gdf_hospitals = gpd.read_postgis(
+            sql=text(SQL_QUERY_HOSPITAL_DATA),
+            con=engine,
+            geom_col="geom",
+            crs="EPSG:4326",
+        )
+        print(
+            f"Successfully read {len(gdf_hospitals)} records from 'public.hospitals'."
+        )
+    except Exception as e:
+        error_message = (
+            f"An error occurred during database interaction for hospital data: {str(e)}"
+        )
+        print(f"ERROR: {error_message}")
+        raise HTTPException(
+            status_code=500,
+            detail=error_message,
+        )
+    if gdf_hospitals is not None and not gdf_hospitals.empty:
+        print(f"Returning {len(gdf_hospitals)} hospital records as GeoJSON.")
+        print("--- Get Hospitals Endpoint: Success ---")
+        return gdf_hospitals.__geo_interface__
+    elif gdf_hospitals is not None and gdf_hospitals.empty:
+        message = "No hospital data found in table 'public.hospitals'."
+        print(f"INFO: {message}")
+        print("--- Get Hospitals Endpoint: Success (No Data) ---")
+        return {"type": "FeatureCollection", "features": []}
+    else:
+        message = f"Failed to read hospital data from 'public.hospitals', or an unexpected issue occurred."
+        print(f"ERROR: {message}")
+        raise HTTPException(
+            status_code=500,
+            detail=message,
+        )

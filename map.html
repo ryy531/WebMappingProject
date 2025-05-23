@@ -18,20 +18,19 @@
     ></script>
 
     <style>
-      /* 基本的页面重置，确保没有意外的边距 */
+      /* Basic page reset */
       body,
       html {
         margin: 0;
         padding: 0;
-        height: 100%; /* 可以让body和html占满视口，但不是必须 */
-        font-family: sans-serif; /* 设置一个默认字体 */
+        height: 100%;
+        font-family: sans-serif;
       }
 
-      /* 给按钮一个非常明确且显眼的样式 */
+      /* Button styling */
       #toggleAddModeButton {
         display: inline-block;
         padding: 10px 15px;
-        /* margin: 10px; */ /* 对于 fixed 定位，margin 可能不按预期工作，先去掉或用 top/left 控制间距 */
         background-color: #007bff;
         color: white;
         border: 1px solid #0056b3;
@@ -39,21 +38,18 @@
         cursor: pointer;
         font-size: 16px;
         z-index: 10000;
-
-        /* --- 修改开始 --- */
-        position: fixed; /* 改为 fixed 定位 */
-        bottom: 10px; /* 距离视口顶部 10px */
-        right: 10px; /* 距离视口左侧 10px */
-        /* --- 修改结束 --- */
+        position: fixed;
+        bottom: 10px;
+        right: 10px;
       }
 
-      /* 确保地图容器有一个明确的高度 */
+      /* Map container styling */
       #mapid {
-        height: 600px; /* 或者你希望的任何高度，例如 80vh (视口高度的80%) */
-        width: 100%; /* 宽度通常是100% */
+        height: 600px;
+        width: 100%;
       }
 
-      /* Leaflet Popup 的优化样式 (你之前有的) */
+      /* Leaflet Popup styling */
       .leaflet-popup-content-wrapper {
         background: #f8f8f8;
       }
@@ -73,10 +69,24 @@
     <div id="mapid"></div>
 
     <script>
+      // Initialize Leaflet map
       var mymap = L.map("mapid").setView([0, 0], 2);
+      L.control.scale({ imperial: false }).addTo(mymap);
+
+      // --- Layer Variables ---
       var populationLayer = null;
       var polygonLayer = null;
-      var osmLayer = L.tileLayer(
+      var hospitalLayer = null;
+      var osmLayer = null;
+      var layerControl = null; // For the layer controller instance
+      var tempMarker = null; // For the temporary marker when adding a new hospital
+      var analysisBufferCircle = null; // MODIFIED: Renamed for consistency from analysisiBufferCircle
+
+      // --- Application State ---
+      var isInAddMode = false; // Tracks if the application is in "add hospital" mode
+
+      // --- Base Layer ---
+      osmLayer = L.tileLayer(
         "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
         {
           attribution:
@@ -87,26 +97,70 @@
 
       var baseLayers = { OpenStreetMap: osmLayer };
 
+      // --- UI Elements ---
       var mapModeButton = document.getElementById("toggleAddModeButton");
-      var isInAddMode = false;
+
+      // --- Event Listeners ---
+
+      // Listener for the "Add Hospital" mode toggle button
       mapModeButton.addEventListener("click", function () {
-        isInAddMode = !isInAddMode;
+        isInAddMode = !isInAddMode; // Toggle the mode
+
         if (isInAddMode) {
-          mapModeButton.textContent = "Cancel Adding Hospital (Click Map)";
-          console.log("Hospital add mode ACTIVATED");
+          mapModeButton.textContent = "Cancel Adding (Click Map)";
+          mymap.getContainer().style.cursor = "crosshair";
+          console.log("Add hospital mode: ACTIVATED");
+          if (tempMarker && mymap.hasLayer(tempMarker)) {
+            mymap.removeLayer(tempMarker);
+            tempMarker = null;
+          }
+          // If entering add mode, remove any existing analysis circle
+          if (analysisBufferCircle && mymap.hasLayer(analysisBufferCircle)) {
+            // NEW: Ensure analysis circle is removed when entering add mode
+            mymap.removeLayer(analysisBufferCircle);
+            analysisBufferCircle = null;
+            console.log("Analysis buffer circle removed on entering add mode.");
+          }
         } else {
-          mapModeButton.textContent = "Start to Add Hospital";
-          console.log("Hospital add mode DEACTIVATED");
+          mapModeButton.textContent = "Start to add hospital";
+          mymap.getContainer().style.cursor = "";
+          console.log("Add hospital mode: DEACTIVATED");
+          if (tempMarker && mymap.hasLayer(tempMarker)) {
+            mymap.removeLayer(tempMarker);
+            tempMarker = null;
+          }
+          // If exiting add mode, also remove any existing analysis circle (already in your code, but good to confirm)
+          if (analysisBufferCircle && mymap.hasLayer(analysisBufferCircle)) {
+            mymap.removeLayer(analysisBufferCircle);
+            analysisBufferCircle = null;
+            console.log("Analysis buffer circle removed on exiting add mode.");
+          }
         }
       });
 
+      // Listener for map clicks
       mymap.on("click", function (event) {
         if (!isInAddMode) {
           console.log(
             "Map clicked, but not in Add Mode. Ignoring for new hospital creation."
           );
+          // If an analysis circle exists and user clicks map background, remove circle
+          if (analysisBufferCircle && mymap.hasLayer(analysisBufferCircle)) {
+            mymap.removeLayer(analysisBufferCircle);
+            analysisBufferCircle = null;
+            console.log(
+              "Analysis buffer circle removed by clicking map background."
+            );
+          }
           return;
         }
+
+        // If already a tempMarker from this add session, remove it before adding a new one
+        if (tempMarker && mymap.hasLayer(tempMarker)) {
+          mymap.removeLayer(tempMarker);
+          tempMarker = null; // MODIFIED: Ensure tempMarker is nulled after removal
+        }
+
         var clickedLat = event.latlng.lat;
         var clickedLng = event.latlng.lng;
         console.log(
@@ -115,29 +169,59 @@
             ", Longitude: " +
             clickedLng
         );
-        var tempMarker = L.marker([clickedLat, clickedLng]).addTo(mymap);
-        tempMarker.bindPopup("New hospital temp point...").openPopup();
+
+        // If an analysis circle exists (e.g. from a previous non-add-mode click), remove it now
+        if (analysisBufferCircle && mymap.hasLayer(analysisBufferCircle)) {
+          mymap.removeLayer(analysisBufferCircle);
+          analysisBufferCircle = null;
+          console.log(
+            "Analysis buffer circle removed before adding new hospital."
+          );
+        }
+
+        tempMarker = L.marker([clickedLat, clickedLng]).addTo(mymap);
+        tempMarker
+          .bindPopup("<b>New Hospital Candidate</b><br>Awaiting details...")
+          .openPopup();
+
         var hospitalName = prompt("Please enter hospital name (optional):", "");
+        if (hospitalName === null) {
+          alert("Operation cancelled (name input).");
+          if (tempMarker && mymap.hasLayer(tempMarker))
+            mymap.removeLayer(tempMarker);
+          tempMarker = null;
+          // User cancelled, consider exiting add mode or allowing another click
+          // For now, let's stay in add mode. Button click or successful add will exit.
+          return;
+        }
+
         var doctorCountStr = prompt(
           "Please enter doctor number (required, e.g., 10):",
           "0"
         );
         if (doctorCountStr === null) {
-          alert("Operation cancelled. No hospital added.");
-          mymap.removeLayer(tempMarker);
+          alert("Operation cancelled (doctor count input).");
+          if (tempMarker && mymap.hasLayer(tempMarker))
+            mymap.removeLayer(tempMarker);
+          tempMarker = null;
           return;
         }
+
         var doctorCount = parseInt(doctorCountStr);
-        if (isNaN(doctorCount) || doctorCountStr.trim() === "") {
-          alert("Doctor number is invalid. Please enter a valid number.");
-          mymap.removeLayer(tempMarker);
+        if (
+          isNaN(doctorCount) ||
+          doctorCountStr.trim() === "" ||
+          doctorCount < 0
+        ) {
+          alert(
+            "Doctor number is invalid. Please enter a valid non-negative number."
+          );
+          if (tempMarker && mymap.hasLayer(tempMarker))
+            mymap.removeLayer(tempMarker);
+          tempMarker = null;
           return;
         }
-        if (doctorCount < 0) {
-          alert("Doctor number cannot be negative.");
-          mymap.removeLayer(tempMarker);
-          return;
-        }
+
         var newHospitalData = {
           name: hospitalName,
           doctor_count: doctorCount,
@@ -145,89 +229,127 @@
           longitude: clickedLng,
         };
         console.log("Data to be submitted for new hospital:", newHospitalData);
+
         tempMarker
           .setPopupContent(
             `<b>${newHospitalData.name || "Unnamed Hospital"}</b><br>Doctors: ${
               newHospitalData.doctor_count
-            }<br><i>Data submitting to server...</i>`
+            }<br><i>Submitting to server...</i>`
           )
           .openPopup();
 
         var apiUrl = "http://127.0.0.1:8000/api/add_hospital";
         fetch(apiUrl, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(newHospitalData),
         })
           .then(function (response) {
             if (!response.ok) {
-              return response.json().then(function (errData) {
-                throw new Error(
-                  "Server responded with status: " +
-                    response.status +
-                    ". Message: " +
-                    (errData.detail || JSON.stringify(errData))
-                );
-              });
+              return response
+                .json()
+                .then(function (errData) {
+                  throw new Error(
+                    "Server responded with status: " +
+                      response.status +
+                      ". Message: " +
+                      (errData.detail || JSON.stringify(errData))
+                  );
+                })
+                .catch(() => {
+                  throw new Error(
+                    "Server responded with status: " +
+                      response.status +
+                      ". Response not in expected JSON format."
+                  );
+                });
             }
             return response.json();
           })
           .then(function (data) {
             console.log("Success response from backend:", data);
             alert(
-              "Hospital data submitted successfully! Message: " + data.message
+              "Hospital data submitted successfully! Message: " +
+                data.message +
+                (data.hospital_id ? " New ID: " + data.hospital_id : "")
             );
-            tempMarker
-              .setPopupContent(
-                `<b>${
-                  newHospitalData.name || "Unnamed Hospital"
-                }</b><br>Doctors: ${
-                  newHospitalData.doctor_count
-                }<br>Coords: ${newHospitalData.latitude.toFixed(
-                  4
-                )}, ${newHospitalData.longitude.toFixed(4)}<br>(Ready to save)`
-              )
-              .openPopup();
             if (tempMarker && mymap.hasLayer(tempMarker)) {
               tempMarker
                 .setPopupContent(
                   `<b>${
-                    newHospitalData.name || "Unnamed Hospital"
+                    data.data_submitted.name || "Unnamed Hospital"
                   }</b><br>Doctors: ${
-                    newHospitalData.doctor_count
-                  }<br><strong style="color: green;">Saved Successfully!</strong>`
+                    data.data_submitted.doctor_count
+                  }<br><strong style="color: green;">Saved Successfully! ID: ${
+                    data.hospital_id
+                  }</strong>`
                 )
                 .openPopup();
+              // tempMarker = null; // MODIFIED: Keep the marker to show success, don't nullify unless you want to remove it
             }
             isInAddMode = false;
-            mapModeButton.textContent = "Start to Add Hospital";
+            mapModeButton.textContent = "Start to add hospital";
             mymap.getContainer().style.cursor = "";
+            // Potentially reload hospital layer: fetchAndDisplayHospitals();
           })
           .catch(function (error) {
             console.error("Error submitting hospital data:", error);
             alert("Error submitting hospital data: " + error.message);
             if (tempMarker && mymap.hasLayer(tempMarker)) {
-              mymap.removeLayer(tempMarker);
-              tempMarker = null;
+              tempMarker
+                .setPopupContent(
+                  `<b>Submission Failed!</b><br>${error.message}<br>Please try again.`
+                )
+                .openPopup();
             }
           });
       });
 
-      var dataUrl = "http://127.0.0.1:8000/get_population_data";
-      var polygonUrl = "http://127.0.0.1:8000/get_polygon_data";
-      fetch(dataUrl)
-        .then(function (response) {
-          if (!response.ok) {
-            throw new Error(
-              `Network response was not ok: ${response.statusText}`
-            );
+      // --- URLs for fetching data ---
+      var populationDataUrl = "http://127.0.0.1:8000/get_population_data";
+      var polygonDataUrl = "http://127.0.0.1:8000/get_polygon_data";
+      var hospitalDataUrl = "http://127.0.0.1:8000/get_hospitals";
+
+      // --- Function to add/update layer control ---
+      function tryAddLayerControl() {
+        if (populationLayer && polygonLayer && hospitalLayer) {
+          if (layerControl && mymap.hasControl(layerControl)) {
+            mymap.removeControl(layerControl);
           }
+          var overlayMaps = {
+            Population: populationLayer,
+            "Administrative Regions": polygonLayer,
+            Hospitals: hospitalLayer,
+          };
+          layerControl = L.control
+            .layers(baseLayers, overlayMaps, { collapsed: false })
+            .addTo(mymap);
+          console.log("Layer control has been added/updated with all layers.");
+        } else {
+          var missing = [];
+          if (!populationLayer) missing.push("Population");
+          if (!polygonLayer) missing.push("Regions");
+          if (!hospitalLayer) missing.push("Hospitals");
+          console.log(
+            "Waiting for layers (" +
+              missing.join(", ") +
+              ") to load before adding control..."
+          );
+        }
+      }
+
+      // --- Fetch and Display Population Data ---
+      fetch(populationDataUrl)
+        .then(function (response) {
+          if (!response.ok)
+            throw new Error(`Population data: ${response.statusText}`);
           return response.json();
         })
         .then(function (geojsonData) {
-          console.log("Successfully get GeoJSON data :", geojsonData);
+          console.log(
+            "Successfully got GeoJSON data for Population:",
+            geojsonData
+          );
           populationLayer = L.geoJSON(geojsonData, {
             pointToLayer: function (feature, latlng) {
               return L.circleMarker(latlng, {
@@ -240,53 +362,66 @@
               });
             },
             onEachFeature: function (feature, layer) {
-              if (feature.properties) {
-                var popupContent = "<b> message : </b><br>";
-                for (var key in feature.properties) {
-                  if (feature.properties.hasOwnProperty(key)) {
-                    if (key !== "geom" && key !== "geometry") {
-                      popupContent +=
-                        key + ":" + feature.properties[key] + "<br>";
-                    }
-                  }
+              var popupContent = "<b>Population Point:</b><br>";
+              for (var key in feature.properties) {
+                if (
+                  feature.properties.hasOwnProperty(key) &&
+                  key !== "geom" &&
+                  key !== "geometry"
+                ) {
+                  popupContent += key + ": " + feature.properties[key] + "<br>";
                 }
-                layer.bindPopup(popupContent, {
-                  maxWidth: 300,
-                  maxHeight: 250,
-                  autoPan: true,
-                  autoPanPadding: L.point(50, 50),
-                });
               }
+              layer.options.customPopupContent = popupContent; // MODIFIED: Storing content
+
+              // REMOVED: var popup = L.popup(...).setContent(popupContent);
+              // REMOVED: layer.bindPopup(popup);
+              // REMOVED: layer.off("click", layer.openPopup, layer);
+
+              layer.on("click", function (e) {
+                // MODIFIED: Logic inside
+                if (isInAddMode) {
+                  console.log(
+                    "Population layer clicked in Add Mode. Allowing event to propagate to map."
+                  );
+                  // DO NOT stop propagation here, let map click handle it
+                } else {
+                  var content = this.options.customPopupContent;
+                  if (!this.getPopup()) {
+                    // MODIFIED: Corrected getPoup to getPopup
+                    this.bindPopup(content);
+                  } else {
+                    this.getPopup().setContent(content); // MODIFIED: Corrected getPoup to getPopup
+                  }
+                  this.openPopup(e.latlng);
+                  L.DomEvent.stopPropagation(e); // MODIFIED: Stop propagation ONLY when NOT in add mode
+                  console.log(
+                    "Population layer clicked (NOT in Add Mode). Opened popup and stopped propagation."
+                  );
+                }
+              });
             },
           });
           populationLayer.addTo(mymap);
-
-          if (populationLayer.getLayers().length > 0) {
+          if (populationLayer.getLayers().length > 0)
             mymap.fitBounds(populationLayer.getBounds());
-          } else {
-            console.warn(
-              "GeoJSON data was empty or invalid, not fitting bounds"
-            );
-          }
+          else console.warn("Population GeoJSON data empty or invalid.");
           tryAddLayerControl();
         })
         .catch(function (error) {
-          console.error("Error when getting data", error);
+          console.error("Error fetching Population data:", error);
         });
 
-      //fetch polygon
-      fetch(polygonUrl)
+      // --- Fetch and Display Polygon Data ---
+      fetch(polygonDataUrl)
         .then(function (response) {
-          if (!response.ok) {
-            throw new Error(
-              `Network response was not ok: ${response.statusText}`
-            );
-          }
+          if (!response.ok)
+            throw new Error(`Polygon data: ${response.statusText}`);
           return response.json();
         })
         .then(function (polygonGeojsonData) {
           console.log(
-            "Successfully get GeoJSON data for polygons:",
+            "Successfully got GeoJSON data for Polygons:",
             polygonGeojsonData
           );
           polygonLayer = L.geoJSON(polygonGeojsonData, {
@@ -300,49 +435,170 @@
               };
             },
             onEachFeature: function (feature, layer) {
-              if (feature.properties) {
-                var popupContent = "<b>Analysis Region Details:</b><br>";
-                if (feature.properties.NAME_1) {
-                  popupContent +=
-                    "Level 1 Name: " + feature.properties.NAME_1 + "<br>";
+              // MODIFIED: Entire onEachFeature logic for click handling
+              var popupContent = "<b>Analysis Region Details:</b><br>";
+              if (feature.properties.NAME_1)
+                popupContent +=
+                  "L1 Name: " + feature.properties.NAME_1 + "<br>";
+              if (feature.properties.NAME_2)
+                popupContent +=
+                  "L2 Name: " + feature.properties.NAME_2 + "<br>";
+
+              layer.options.customPopupContent = popupContent; // NEW: Store popup content
+
+              // REMOVED: var popup = L.popup(...).setContent(popupContent);
+              // REMOVED: layer.bindPopup(popup);
+              // REMOVED: layer.off("click", layer.openPopup, layer);
+
+              layer.on("click", function (e) {
+                // NEW: Custom click handler
+                if (isInAddMode) {
+                  console.log(
+                    "Polygon layer clicked in Add Mode. Allowing event to propagate to map."
+                  );
+                  // DO NOT stop propagation
+                } else {
+                  var content = this.options.customPopupContent;
+                  if (!this.getPopup()) {
+                    this.bindPopup(content);
+                  } else {
+                    this.getPopup().setContent(content);
+                  }
+                  this.openPopup(e.latlng);
+                  L.DomEvent.stopPropagation(e); // Stop propagation ONLY when NOT in add mode
+                  console.log(
+                    "Polygon layer clicked (NOT in Add Mode). Opened popup and stopped propagation."
+                  );
                 }
-                if (feature.properties.NAME_2) {
-                  popupContent +=
-                    "Level 2 Name: " + feature.properties.NAME_2 + "<br>";
-                }
-                layer.bindPopup(popupContent, {
-                  maxWidth: 300,
-                  maxHeight: 250,
-                  autoPan: true,
-                  autoPanPadding: L.point(50, 50),
-                });
-              }
+              });
             },
           });
           polygonLayer.addTo(mymap);
           tryAddLayerControl();
         })
         .catch(function (error) {
-          console.error("Error when getting data", error);
+          console.error("Error fetching Polygon data:", error);
         });
 
-      var layerControl = null;
-      function tryAddLayerControl() {
-        if (populationLayer != null && polygonLayer != null) {
-          var overlayMaps = {
-            Population: populationLayer,
-            Regions: polygonLayer,
-          };
-          layerControl = L.control
-            .layers(baseLayers, overlayMaps, { collapsed: false })
-            .addTo(mymap);
-          console.log("Layer control has been added/updated.");
-        } else {
+      // --- Fetch and Display Hospital Data ---
+      fetch(hospitalDataUrl)
+        .then(function (response) {
+          if (!response.ok)
+            throw new Error(`Hospital data: ${response.statusText}`);
+          return response.json();
+        })
+        .then(function (hospitalGeoJsonData) {
           console.log(
-            "Waiting for all overlay layers to load before adding control..."
+            "Successfully got GeoJSON data for Hospitals:",
+            hospitalGeoJsonData
           );
-        }
-      }
+          hospitalLayer = L.geoJSON(hospitalGeoJsonData, {
+            pointToLayer: function (feature, latlng) {
+              return L.circleMarker(latlng, {
+                radius: 7,
+                fillColor: "green",
+                color: "#000",
+                weight: 1,
+                opacity: 1,
+                fillOpacity: 0.8,
+              });
+            },
+            onEachFeature: function (feature, layer) {
+              // MODIFIED: Entire onEachFeature logic for click handling
+              var popupContent = "<b>Hospital Details:</b><br>";
+              popupContent +=
+                "Name: " +
+                (feature.properties.name || "(Not provided)") +
+                "<br>";
+              if (typeof feature.properties.doctor_count !== "undefined") {
+                popupContent +=
+                  "Doctors: " + feature.properties.doctor_count + "<br>";
+              }
+              if (typeof feature.properties.id !== "undefined") {
+                popupContent += "ID: " + feature.properties.id + "<br>";
+              }
+
+              layer.options.customPopupContent = popupContent; // NEW: Store popup content
+
+              // REMOVED: var popup = L.popup(...).setContent(popupContent);
+              // REMOVED: layer.bindPopup(popup);
+              // REMOVED: layer.off("click", layer.openPopup, layer);
+
+              layer.on("click", function (e) {
+                // NEW: Custom click handler
+                if (isInAddMode) {
+                  console.log(
+                    "Hospital layer clicked in Add Mode. Allowing event to propagate to map."
+                  );
+                  // DO NOT stop propagation
+                } else {
+                  var content = this.options.customPopupContent;
+                  if (!this.getPopup()) {
+                    this.bindPopup(content);
+                  } else {
+                    this.getPopup().setContent(content);
+                  }
+                  this.openPopup(e.latlng);
+                  L.DomEvent.stopPropagation(e); // Stop propagation ONLY when NOT in add mode
+
+                  console.log(
+                    "--- Existing Hospital Clicked (for analysis) ---"
+                  );
+                  // Buffer Analysis Logic
+                  var bufferRadiusMeters = 5000;
+                  var centerLatLng = this.getLatLng(); // 'this' is the clicked hospital layer
+
+                  if (
+                    analysisBufferCircle &&
+                    mymap.hasLayer(analysisBufferCircle)
+                  ) {
+                    mymap.removeLayer(analysisBufferCircle);
+                    analysisBufferCircle = null;
+                  }
+                  analysisBufferCircle = L.circle(centerLatLng, {
+                    radius: bufferRadiusMeters,
+                    color: "green",
+                    weight: 2,
+                    fillColor: "green",
+                    fillOpacity: 0.15,
+                    interactive: false, // Non-interactive buffer
+                  }).addTo(mymap);
+                  console.log(
+                    `Buffer circle (radius: ${bufferRadiusMeters}m) drawn around hospital ID: ${
+                      feature.properties.id || "N/A"
+                    }.`
+                  );
+                  // var analysisRequestData = { // You can use this if sending data to backend
+                  //   latitude: centerLatLng.lat,
+                  //   longitude: centerLatLng.lng,
+                  //   radius_meters: bufferRadiusMeters,
+                  //   hospital_id: feature.properties.id,
+                  // };
+                  // console.log(
+                  //   "Data prepared for buffer analysis request:",
+                  //   analysisRequestData
+                  // );
+                  console.log(
+                    "Hospital layer clicked (NOT in Add Mode). Opened popup, drew buffer, and stopped propagation."
+                  );
+                }
+                // MODIFIED: Moved buffer logic entirely inside the 'else' (not in add mode) block
+                // AND also moved L.DomEvent.stopPropagation(e) for the hospital layer
+                // inside the 'else' block, right after opening its popup.
+              });
+            },
+          });
+          if (hospitalLayer) {
+            hospitalLayer.addTo(mymap);
+            console.log("Hospital layer added to map.");
+            tryAddLayerControl();
+          } else {
+            console.error("Failed to create hospital layer from GeoJSON data.");
+          }
+        })
+        .catch(function (error) {
+          console.error("Error fetching Hospital data:", error);
+        });
     </script>
   </body>
 </html>

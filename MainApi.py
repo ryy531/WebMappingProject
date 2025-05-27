@@ -22,6 +22,12 @@ class HospitalCreate(BaseModel):
     longitude: float
 
 
+class AnalysisData(BaseModel):
+    latitude: float
+    longitude: float
+    radius_meters: int
+
+
 # --- CORS (Cross-Origin Resource Sharing) Middleware Configuration ---
 # Allows frontend (e.g., running on http://127.0.0.1:5500)
 # to make requests to this FastAPI backend (running on http://127.0.0.1:8000).
@@ -310,4 +316,37 @@ async def get_hospitals():
         raise HTTPException(
             status_code=500,
             detail=message,
+        )
+
+
+@app.post("/api/analysis_data")
+async def analysis_data(data_input: AnalysisData):
+    print("Start to analysis buffer circle data")
+    engine = None
+    gdf_populations = None
+    SQL_QUERY_ANALYSIS_DATA = f'SELECT SUM("TotalPopulation") FROM "{POPULATION_TABLE_NAME}" WHERE ST_DWithin(geometry::geography,ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,:radius);'
+    params = {
+        "lon": data_input.longitude,
+        "lat": data_input.latitude,
+        "radius": data_input.radius_meters,
+    }
+    try:
+        engine = create_engine(DATABASE_CONNECTION_STRING)
+        with engine.connect() as connection:
+            result = connection.execute(text(SQL_QUERY_ANALYSIS_DATA), params)
+            population_sum = result.scalar_one()
+            if population_sum is None:
+                population_sum = 0
+            print(f"Analysis complete. Total Population in buffer: {population_sum}")
+
+            return {"population_count": int(population_sum)}
+
+    except Exception as e:
+        error_message = (
+            f"An error occurred during database interaction for data analysis: {str(e)}"
+        )
+        print(f"ERROR: {error_message}")
+        raise HTTPException(
+            status_code=500,
+            detail=error_message,
         )

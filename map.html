@@ -81,6 +81,7 @@
       var layerControl = null; // For the layer controller instance
       var tempMarker = null; // For the temporary marker when adding a new hospital
       var analysisBufferCircle = null; // MODIFIED: Renamed for consistency from analysisiBufferCircle
+      let analysisResultPopup = null;
 
       // --- Application State ---
       var isInAddMode = false; // Tracks if the application is in "add hospital" mode
@@ -309,6 +310,7 @@
       var populationDataUrl = "http://127.0.0.1:8000/get_population_data";
       var polygonDataUrl = "http://127.0.0.1:8000/get_polygon_data";
       var hospitalDataUrl = "http://127.0.0.1:8000/get_hospitals";
+      var dataAnalysisUrl = "http://127.0.0.1:8000/api/analysis_data";
 
       // --- Function to add/update layer control ---
       function tryAddLayerControl() {
@@ -545,7 +547,7 @@
                     "--- Existing Hospital Clicked (for analysis) ---"
                   );
                   // Buffer Analysis Logic
-                  var bufferRadiusMeters = 5000;
+                  var bufferRadiusMeters = 1000;
                   var centerLatLng = this.getLatLng(); // 'this' is the clicked hospital layer
 
                   if (
@@ -568,16 +570,41 @@
                       feature.properties.id || "N/A"
                     }.`
                   );
-                  // var analysisRequestData = { // You can use this if sending data to backend
-                  //   latitude: centerLatLng.lat,
-                  //   longitude: centerLatLng.lng,
-                  //   radius_meters: bufferRadiusMeters,
-                  //   hospital_id: feature.properties.id,
-                  // };
-                  // console.log(
-                  //   "Data prepared for buffer analysis request:",
-                  //   analysisRequestData
-                  // );
+                  var analysisRequestData = {
+                    // You can use this if sending data to backend
+                    latitude: centerLatLng.lat,
+                    longitude: centerLatLng.lng,
+                    radius_meters: bufferRadiusMeters,
+                    hospital_id: feature.properties.id,
+                  };
+                  console.log(
+                    "Data prepared for buffer analysis request:",
+                    analysisRequestData
+                  );
+
+                  fetch(dataAnalysisUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(analysisRequestData),
+                  })
+                    .then(function (response) {
+                      return response.json();
+                    })
+                    .then(function (data) {
+                      if (analysisResultPopup) {
+                        mymap.closePopup(analysisResultPopup);
+                      }
+                      var popupContent = `<b>population count : ${data.population_count}</b><br>`;
+                      analysisResultPopup = L.popup({
+                        maxWidth: 300,
+                        maxHeight: 250,
+                        autoPan: true,
+                        autoPanPadding: L.point(50, 50),
+                      })
+                        .setLatLng(centerLatLng)
+                        .setContent(popupContent)
+                        .openOn(mymap);
+                    });
                   console.log(
                     "Hospital layer clicked (NOT in Add Mode). Opened popup, drew buffer, and stopped propagation."
                   );

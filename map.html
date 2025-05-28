@@ -16,6 +16,7 @@
       integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
       crossorigin=""
     ></script>
+    <script src="https://unpkg.com/leaflet.vectorgrid@latest/dist/Leaflet.VectorGrid.bundled.js"></script>
 
     <style>
       /* Basic page reset */
@@ -94,6 +95,30 @@
             '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         }
       );
+      var populationVectorTileUrl =
+        "http://localhost:8080/geoserver/gwc/service/tms/1.0.0/web_gis_project:egy_2020_constrained_unadj@EPSG%3A900913@pbf/{z}/{x}/{-y}.pbf";
+
+      var populationLayer = L.vectorGrid
+        .protobuf(populationVectorTileUrl, {
+          vectorTileLayerStyles: {
+            egy_2020_constrained_unadj: function (properties, zoom) {
+              return {
+                fillColor: "orange",
+                fill: true,
+                stroke: false,
+                radius: 3,
+                fillOpacity: 0.7,
+              };
+            },
+          },
+          interactive: true,
+          onEachFeature: function (feature, layer) {
+            var popupContent =
+              "<b>Population:</b> " + feature.properties.TotalPopulation;
+            layer.bindPopup(popupContent);
+          },
+        })
+        .addTo(mymap);
       osmLayer.addTo(mymap);
 
       var baseLayers = { OpenStreetMap: osmLayer };
@@ -307,7 +332,7 @@
       });
 
       // --- URLs for fetching data ---
-      var populationDataUrl = "http://127.0.0.1:8000/get_population_data";
+      //var populationDataUrl = "http://127.0.0.1:8000/get_population_data";
       var polygonDataUrl = "http://127.0.0.1:8000/get_polygon_data";
       var hospitalDataUrl = "http://127.0.0.1:8000/get_hospitals";
       var dataAnalysisUrl = "http://127.0.0.1:8000/api/analysis_data";
@@ -339,81 +364,81 @@
           );
         }
       }
+      /*
+            // --- Fetch and Display Population Data ---
+            fetch(populationDataUrl)
+              .then(function (response) {
+                if (!response.ok)
+                  throw new Error(`Population data: ${response.statusText}`);
+                return response.json();
+              })
+              .then(function (geojsonData) {
+                console.log(
+                  "Successfully got GeoJSON data for Population:",
+                  geojsonData
+                );
+                populationLayer = L.geoJSON(geojsonData, {
+                  pointToLayer: function (feature, latlng) {
+                    return L.circleMarker(latlng, {
+                      radius: 6,
+                      fillColor: "#ff7800",
+                      color: "#000",
+                      weight: 1,
+                      opacity: 1,
+                      fillOpacity: 0.8,
+                    });
+                  },
+                  onEachFeature: function (feature, layer) {
+                    var popupContent = "<b>Population Point:</b><br>";
+                    for (var key in feature.properties) {
+                      if (
+                        feature.properties.hasOwnProperty(key) &&
+                        key !== "geom" &&
+                        key !== "geometry"
+                      ) {
+                        popupContent += key + ": " + feature.properties[key] + "<br>";
+                      }
+                    }
+                    layer.options.customPopupContent = popupContent; // MODIFIED: Storing content
 
-      // --- Fetch and Display Population Data ---
-      fetch(populationDataUrl)
-        .then(function (response) {
-          if (!response.ok)
-            throw new Error(`Population data: ${response.statusText}`);
-          return response.json();
-        })
-        .then(function (geojsonData) {
-          console.log(
-            "Successfully got GeoJSON data for Population:",
-            geojsonData
-          );
-          populationLayer = L.geoJSON(geojsonData, {
-            pointToLayer: function (feature, latlng) {
-              return L.circleMarker(latlng, {
-                radius: 6,
-                fillColor: "#ff7800",
-                color: "#000",
-                weight: 1,
-                opacity: 1,
-                fillOpacity: 0.8,
+                    // REMOVED: var popup = L.popup(...).setContent(popupContent);
+                    // REMOVED: layer.bindPopup(popup);
+                    // REMOVED: layer.off("click", layer.openPopup, layer);
+
+                    layer.on("click", function (e) {
+                      // MODIFIED: Logic inside
+                      if (isInAddMode) {
+                        console.log(
+                          "Population layer clicked in Add Mode. Allowing event to propagate to map."
+                        );
+                        // DO NOT stop propagation here, let map click handle it
+                      } else {
+                        var content = this.options.customPopupContent;
+                        if (!this.getPopup()) {
+                          // MODIFIED: Corrected getPoup to getPopup
+                          this.bindPopup(content);
+                        } else {
+                          this.getPopup().setContent(content); // MODIFIED: Corrected getPoup to getPopup
+                        }
+                        this.openPopup(e.latlng);
+                        L.DomEvent.stopPropagation(e); // MODIFIED: Stop propagation ONLY when NOT in add mode
+                        console.log(
+                          "Population layer clicked (NOT in Add Mode). Opened popup and stopped propagation."
+                        );
+                      }
+                    });
+                  },
+                });
+                populationLayer.addTo(mymap);
+                if (populationLayer.getLayers().length > 0)
+                  mymap.fitBounds(populationLayer.getBounds());
+                else console.warn("Population GeoJSON data empty or invalid.");
+                tryAddLayerControl();
+              })
+              .catch(function (error) {
+                console.error("Error fetching Population data:", error);
               });
-            },
-            onEachFeature: function (feature, layer) {
-              var popupContent = "<b>Population Point:</b><br>";
-              for (var key in feature.properties) {
-                if (
-                  feature.properties.hasOwnProperty(key) &&
-                  key !== "geom" &&
-                  key !== "geometry"
-                ) {
-                  popupContent += key + ": " + feature.properties[key] + "<br>";
-                }
-              }
-              layer.options.customPopupContent = popupContent; // MODIFIED: Storing content
-
-              // REMOVED: var popup = L.popup(...).setContent(popupContent);
-              // REMOVED: layer.bindPopup(popup);
-              // REMOVED: layer.off("click", layer.openPopup, layer);
-
-              layer.on("click", function (e) {
-                // MODIFIED: Logic inside
-                if (isInAddMode) {
-                  console.log(
-                    "Population layer clicked in Add Mode. Allowing event to propagate to map."
-                  );
-                  // DO NOT stop propagation here, let map click handle it
-                } else {
-                  var content = this.options.customPopupContent;
-                  if (!this.getPopup()) {
-                    // MODIFIED: Corrected getPoup to getPopup
-                    this.bindPopup(content);
-                  } else {
-                    this.getPopup().setContent(content); // MODIFIED: Corrected getPoup to getPopup
-                  }
-                  this.openPopup(e.latlng);
-                  L.DomEvent.stopPropagation(e); // MODIFIED: Stop propagation ONLY when NOT in add mode
-                  console.log(
-                    "Population layer clicked (NOT in Add Mode). Opened popup and stopped propagation."
-                  );
-                }
-              });
-            },
-          });
-          populationLayer.addTo(mymap);
-          if (populationLayer.getLayers().length > 0)
-            mymap.fitBounds(populationLayer.getBounds());
-          else console.warn("Population GeoJSON data empty or invalid.");
-          tryAddLayerControl();
-        })
-        .catch(function (error) {
-          console.error("Error fetching Population data:", error);
-        });
-
+      */
       // --- Fetch and Display Polygon Data ---
       fetch(polygonDataUrl)
         .then(function (response) {
@@ -588,6 +613,25 @@
                     body: JSON.stringify(analysisRequestData),
                   })
                     .then(function (response) {
+                      if (!response.ok) {
+                        return response
+                          .json()
+                          .then(function (errData) {
+                            throw new Error(
+                              "Server Error:" +
+                                response.status +
+                                ". Details: " +
+                                (errData.detail || JSON.stringify(errData))
+                            );
+                          })
+                          .catch(() => {
+                            throw new Error(
+                              "Server Error: " +
+                                response.status +
+                                ". Could not parse error response as JSON."
+                            );
+                          });
+                      }
                       return response.json();
                     })
                     .then(function (data) {
@@ -604,6 +648,9 @@
                         .setLatLng(centerLatLng)
                         .setContent(popupContent)
                         .openOn(mymap);
+                    })
+                    .catch(function (error) {
+                      console.error("Error analysing data :", error);
                     });
                   console.log(
                     "Hospital layer clicked (NOT in Add Mode). Opened popup, drew buffer, and stopped propagation."
